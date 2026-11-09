@@ -1,0 +1,982 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Inhibition Task</title>
+<style>
+  /* Colors are fixed on purpose. If the page followed each participant's
+     light/dark system setting, stimulus contrast would differ between
+     participants, which would be a confound. */
+  :root {
+    color-scheme: light;
+    --page: #e2e2e2;
+    --panel: #ffffff;
+    --ink: #000000;
+    --muted: #4d4d4d;
+    --line: #b8b8b8;
+    --stop: #d00000;
+    --focus: #1a56c4;
+    --error: #a30000;
+  }
+
+  * { box-sizing: border-box; }
+
+  /* A system font loads instantly with no network request, so the task
+     works offline on lab machines and renders the same way every session. */
+  body {
+    margin: 0;
+    padding: 24px;
+    background: var(--page);
+    color: var(--ink);
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
+    font-size: 17px;
+    line-height: 1.5;
+  }
+
+  /* Each screen is a container that is shown or hidden with the hidden attribute. */
+  .screen {
+    max-width: 620px;
+    margin: 32px auto;
+  }
+
+  h1 { font-size: 28px; line-height: 1.2; margin: 0 0 20px; }
+  h2 { font-size: 22px; line-height: 1.25; margin: 0 0 16px; }
+  p  { margin: 0 0 14px; }
+
+  .field { margin-bottom: 14px; }
+  label  { display: block; font-weight: 600; margin-bottom: 4px; }
+
+  input, select, button {
+    font: inherit;
+    padding: 9px 12px;
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    background: var(--panel);
+    color: var(--ink);
+  }
+  input, select { width: 100%; max-width: 320px; }
+
+  button {
+    background: var(--ink);
+    color: var(--panel);
+    border-color: var(--ink);
+    cursor: pointer;
+    margin: 6px 8px 6px 0;
+  }
+  button.secondary { background: var(--panel); color: var(--ink); }
+
+  :focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
+
+  .error { color: var(--error); font-weight: 600; min-height: 1.5em; }
+
+  .rule-list { margin: 0 0 18px; padding: 0; list-style: none; }
+  .rule-list li {
+    display: grid;
+    grid-template-columns: 110px 1fr;
+    gap: 12px;
+    margin-bottom: 10px;
+  }
+
+  .note { color: var(--muted); font-size: 15px; }
+
+  /* ---------- Task screen ---------- */
+  #taskScreen {
+    max-width: none;
+    text-align: center;
+    cursor: none;          /* hide the mouse pointer during trials */
+    user-select: none;
+  }
+
+  #cueLabel     { font-size: 30px; font-weight: 700; min-height: 45px; margin-top: 4px; }
+  #cueDetail    { font-size: 20px; min-height: 30px; margin-top: 4px; }
+  #statusLine   { font-size: 16px; color: var(--muted); min-height: 24px; margin-top: 8px; }
+  #feedbackLine { font-size: 20px; font-weight: 600; min-height: 30px; margin-top: 4px; }
+
+  /* The stimulus area keeps the original's fixed pixel geometry so that
+     target positions are identical across sessions. */
+  #targetArea {
+    position: relative;
+    width: 900px;
+    height: 280px;
+    margin: 24px auto;
+    background: var(--panel);
+    border: 1px solid var(--line);
+  }
+
+  .target {
+    position: absolute;
+    top: 100px;
+    font-size: 56px;
+    line-height: 1;
+    visibility: hidden;
+  }
+  #leftTarget  { left: 120px; }
+  #rightTarget { right: 120px; }
+
+  #fixation {
+    position: absolute;
+    left: 50%;
+    top: 100px;
+    transform: translateX(-50%);
+    font-size: 56px;
+    line-height: 1;
+  }
+
+  #stopSignal {
+    position: absolute;
+    left: 50%;
+    top: 175px;
+    transform: translateX(-50%);
+    font-size: 46px;
+    line-height: 1;
+    color: var(--stop);
+    font-weight: 700;
+    visibility: hidden;
+  }
+
+  /* visibility (rather than display) is used for stimuli so that showing
+     one never causes the browser to recompute the page layout, which keeps
+     the frame where it appears as cheap as possible. */
+  .visible { visibility: visible !important; }
+
+  .stat-table { border-collapse: collapse; margin: 0 0 18px; }
+  .stat-table td { padding: 4px 18px 4px 0; }
+  .stat-table td:last-child { font-weight: 600; font-variant-numeric: tabular-nums; }
+</style>
+</head>
+<body>
+
+<!-- Screen 1: participant details -->
+<section id="formScreen" class="screen">
+  <h1>Inhibition task</h1>
+  <div class="field">
+    <label for="pid">Participant ID</label>
+    <input id="pid" autocomplete="off">
+  </div>
+  <div class="field">
+    <label for="age">Age</label>
+    <input id="age" type="number" min="1" max="120">
+  </div>
+  <div class="field">
+    <label for="gender">Gender</label>
+    <select id="gender">
+      <option value="">Select one</option>
+      <option>Male</option>
+      <option>Female</option>
+      <option>Other</option>
+      <option>Prefer not to say</option>
+    </select>
+  </div>
+  <p id="formError" class="error"></p>
+  <button id="continueBtn">Continue</button>
+</section>
+
+<!-- Screen 2: instructions -->
+<section id="instructionScreen" class="screen" hidden>
+  <h2>Instructions</h2>
+  <p>A dot will appear on the left or right. Use <b>F</b> for left and <b>J</b> for right. Keep your fingers resting on both keys.</p>
+  <ul class="rule-list">
+    <li><b>PRO</b> Press the key on the same side as the dot.</li>
+    <li><b>ANTI</b> Press the key on the opposite side from the dot.</li>
+    <li><b>STOP</b> On some PRO and ANTI trials, the word STOP appears shortly after the dot. When it does, try not to press anything. It won’t always be possible to stop, and that’s expected.</li>
+    <li><b>FREE VETO</b> Press the key on the same side as the dot, or choose not to press at all. Either is fine. Decide each time.</li>
+  </ul>
+  <p>Respond as quickly and accurately as you can. Don’t slow down to wait and see whether STOP will appear.</p>
+  <p class="note">You’ll start with a short practice round that gives feedback after each trial. The main task has several blocks with a break between each one.</p>
+  <p id="instructionError" class="error"></p>
+  <button id="practiceBtn">Start practice</button>
+</section>
+
+<!-- Screen 3: the task itself -->
+<section id="taskScreen" class="screen" hidden>
+  <div id="cueLabel"></div>
+  <div id="cueDetail"></div>
+  <div id="statusLine"></div>
+  <div id="feedbackLine"></div>
+  <div id="targetArea">
+    <div id="fixation">+</div>
+    <div id="leftTarget" class="target">●</div>
+    <div id="rightTarget" class="target">●</div>
+    <div id="stopSignal">STOP</div>
+  </div>
+</section>
+
+<!-- Screen 4: reused for "practice done" and for breaks between blocks -->
+<section id="breakScreen" class="screen" hidden>
+  <h2 id="breakTitle"></h2>
+  <div id="breakBody"></div>
+  <button id="breakBtn"></button>
+</section>
+
+<!-- Screen 5: end of session -->
+<section id="endScreen" class="screen" hidden>
+  <h2>Session complete</h2>
+  <p>Thank you for taking part.</p>
+  <p class="note">For the researcher: download both files before closing this page. The data is not saved anywhere else.</p>
+  <button id="downloadTrialsBtn">Download trial data</button>
+  <button id="downloadSummaryBtn">Download summary</button>
+  <p id="downloadStatus" class="note"></p>
+  <button id="nextParticipantBtn" class="secondary">Set up next participant</button>
+</section>
+
+<script>
+(() => {
+  "use strict";
+
+  // ===================================================================
+  // 1. CONFIGURATION
+  // Every experimental parameter lives here, so a lab can change the
+  // design without touching the rest of the code.
+  // ===================================================================
+  const VERSION = "1.0.0";   // saved in every summary file; bump when the task changes
+
+  const CONFIG = {
+    keys: { left: "f", right: "j" },
+
+    timing: {
+      fixationMs: 500,         // fixation cross alone, before the foreperiod
+      foreperiodMinMs: 500,    // random extra wait before the dot (uniform)
+      foreperiodMaxMs: 1000,
+      responseWindowMs: 1500,  // time allowed to respond after the dot appears
+      itiMs: 500               // blank gap between trials
+    },
+
+    // One-up/one-down staircase (Verbruggen et al., 2019): after a
+    // successful stop the SSD gets longer (harder); after a failed stop it
+    // gets shorter (easier). This converges on P(respond | signal) of about 0.5.
+    // Separate staircases run for the PRO and ANTI rules because their go
+    // RTs differ.
+    staircase: { startMs: 250, stepMs: 50, minMs: 50, maxMs: 1000 },
+
+    // Per rule, the main task has 50 stop trials and 150 go trials, so
+    // stop trials are 25% of each rule's trials. That meets the consensus
+    // minimum of about 50 stop trials per SSRT estimate.
+    mainBlocks: 5,
+    trialsPerMainBlock: { goPro: 30, goAnti: 30, stopPro: 10, stopAnti: 10, free: 10 },
+    practiceTrials:     { goPro: 4,  goAnti: 4,  stopPro: 2,  stopAnti: 2,  free: 2 },
+
+    // SSRT estimates are flagged as unreliable when P(respond | signal)
+    // falls outside this range.
+    reliablePRespond: [0.25, 0.75],
+
+    // The stimulus area is 900 px wide; narrower windows would clip it.
+    minWindowWidth: 960
+  };
+
+  // ===================================================================
+  // 2. HANDLES TO PAGE ELEMENTS
+  // ===================================================================
+  const $ = (id) => document.getElementById(id);
+
+  const screens = {
+    form: $("formScreen"),
+    instructions: $("instructionScreen"),
+    task: $("taskScreen"),
+    break: $("breakScreen"),
+    end: $("endScreen")
+  };
+
+  const el = {
+    pid: $("pid"), age: $("age"), gender: $("gender"),
+    formError: $("formError"), instructionError: $("instructionError"),
+    cueLabel: $("cueLabel"), cueDetail: $("cueDetail"),
+    statusLine: $("statusLine"), feedbackLine: $("feedbackLine"),
+    leftTarget: $("leftTarget"), rightTarget: $("rightTarget"),
+    stopSignal: $("stopSignal"),
+    breakTitle: $("breakTitle"), breakBody: $("breakBody"), breakBtn: $("breakBtn"),
+    downloadStatus: $("downloadStatus")
+  };
+
+  function showScreen(name) {
+    Object.entries(screens).forEach(([key, node]) => { node.hidden = key !== name; });
+  }
+
+  // ===================================================================
+  // 3. STATE
+  // Everything the program needs to remember between events.
+  // ===================================================================
+  const state = {
+    participant: null,
+    sessionStart: null,
+    frameMs: 1000 / 60,      // replaced by a measurement before practice
+    stage: "practice",       // "practice" or "main"
+    blocks: [],              // list of blocks; each block is a list of trials
+    blockIndex: 0,
+    trialIndex: 0,           // position within the current block
+    globalTrial: 0,          // running count within the current stage
+    staircases: { pro: 0, anti: 0 },
+    trial: null,             // the trial currently running
+    phase: "idle",           // "fixation", "drawing", "response", "iti", "idle"
+    token: 0,                // increments per trial; stale callbacks check it and quit
+    timers: [],
+    data: [],
+    downloaded: { trials: false, summary: false },
+    onBreakContinue: null
+  };
+
+  // ===================================================================
+  // 4. SMALL HELPERS
+  // ===================================================================
+  function randInt(min, max) {
+    return Math.floor(Math.random() * (max - min + 1)) + min;
+  }
+
+  function shuffle(arr) {
+    const copy = [...arr];
+    for (let i = copy.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [copy[i], copy[j]] = [copy[j], copy[i]];
+    }
+    return copy;
+  }
+
+  function addTimer(fn, ms) {
+    state.timers.push(setTimeout(fn, ms));
+  }
+
+  function clearTimers() {
+    state.timers.forEach(clearTimeout);
+    state.timers = [];
+  }
+
+  function round1(x) {
+    return Math.round(x * 10) / 10;
+  }
+
+  function mean(nums) {
+    return nums.length ? nums.reduce((a, b) => a + b, 0) / nums.length : NaN;
+  }
+
+  function fmt(x, digits = 1) {
+    return Number.isFinite(x) ? x.toFixed(digits) : "NA";
+  }
+
+  function correctKeyFor(trial) {
+    // FREE VETO trials use the PRO rule (rule is set to "pro" when they're built).
+    const towardTarget = trial.side === "left" ? CONFIG.keys.left : CONFIG.keys.right;
+    const awayFromTarget = trial.side === "left" ? CONFIG.keys.right : CONFIG.keys.left;
+    return trial.rule === "pro" ? towardTarget : awayFromTarget;
+  }
+
+  // A keyboard event's timeStamp is recorded when the key was pressed,
+  // which is earlier and more accurate than calling performance.now() inside
+  // the handler. In current browsers it uses the same clock as
+  // performance.now() and requestAnimationFrame. The fallback covers old
+  // browsers that used a different clock.
+  function eventTime(e) {
+    const ts = e.timeStamp;
+    return ts > 0 && ts < 1e12 ? ts : performance.now();
+  }
+
+  // ===================================================================
+  // 5. DISPLAY TIMING
+  // A screen change only becomes visible when the monitor next refreshes.
+  // requestAnimationFrame (rAF) runs a function just before each refresh
+  // and passes it a timestamp for that frame, so the code makes stimulus
+  // changes inside rAF and uses those timestamps to estimate onsets.
+  // ===================================================================
+  function measureRefresh(frames = 60) {
+    return new Promise((resolve) => {
+      const stamps = [];
+      function tick(now) {
+        stamps.push(now);
+        if (stamps.length <= frames) {
+          requestAnimationFrame(tick);
+        } else {
+          const gaps = [];
+          for (let i = 1; i < stamps.length; i++) gaps.push(stamps[i] - stamps[i - 1]);
+          gaps.sort((a, b) => a - b);
+          resolve(gaps[Math.floor(gaps.length / 2)]);   // median frame duration
+        }
+      }
+      requestAnimationFrame(tick);
+    });
+  }
+
+  function hideStimuli() {
+    el.leftTarget.classList.remove("visible");
+    el.rightTarget.classList.remove("visible");
+    el.stopSignal.classList.remove("visible");
+  }
+
+  // ===================================================================
+  // 6. BUILDING TRIALS
+  // Trials are built one block at a time. Stop trials do NOT get an SSD
+  // here: the staircase assigns it at the moment each stop trial starts,
+  // because it depends on how the previous stop trial went.
+  // ===================================================================
+  function buildBlock(counts) {
+    const trials = [];
+    const add = (n, family, rule) => {
+      for (let i = 0; i < n; i++) {
+        trials.push({
+          family,                                // "go", "stop", or "free"
+          rule,                                  // "pro" or "anti"
+          side: i % 2 === 0 ? "left" : "right",  // balanced within each trial type
+          foreperiod: randInt(CONFIG.timing.foreperiodMinMs, CONFIG.timing.foreperiodMaxMs)
+        });
+      }
+    };
+    add(counts.goPro, "go", "pro");
+    add(counts.goAnti, "go", "anti");
+    add(counts.stopPro, "stop", "pro");
+    add(counts.stopAnti, "stop", "anti");
+    add(counts.free, "free", "pro");
+    return shuffle(trials);
+  }
+
+  function resetStaircases() {
+    state.staircases.pro = CONFIG.staircase.startMs;
+    state.staircases.anti = CONFIG.staircase.startMs;
+  }
+
+  function updateStaircase(rule, stopped) {
+    const s = CONFIG.staircase;
+    const next = state.staircases[rule] + (stopped ? s.stepMs : -s.stepMs);
+    state.staircases[rule] = Math.min(s.maxMs, Math.max(s.minMs, next));
+  }
+
+  // ===================================================================
+  // 7. SESSION FLOW
+  // ===================================================================
+  async function startPractice() {
+    if (window.innerWidth < CONFIG.minWindowWidth) {
+      el.instructionError.textContent =
+        `Make the browser window at least ${CONFIG.minWindowWidth} pixels wide, then start again. ` +
+        "Full-screen mode on a laptop or desktop usually works.";
+      return;
+    }
+    el.instructionError.textContent = "";
+
+    showScreen("task");
+    el.cueLabel.textContent = "";
+    el.cueDetail.textContent = "";
+    el.statusLine.textContent = "Getting ready";
+    state.frameMs = await measureRefresh();
+
+    state.stage = "practice";
+    state.blocks = [buildBlock(CONFIG.practiceTrials)];
+    state.globalTrial = 0;
+    resetStaircases();
+    startBlock(0);
+  }
+
+  function startMain() {
+    state.stage = "main";
+    state.blocks = [];
+    for (let b = 0; b < CONFIG.mainBlocks; b++) {
+      state.blocks.push(buildBlock(CONFIG.trialsPerMainBlock));
+    }
+    state.globalTrial = 0;
+    resetStaircases();   // practice SSDs don't carry over into the main task
+    startBlock(0);
+  }
+
+  function startBlock(index) {
+    state.blockIndex = index;
+    state.trialIndex = 0;
+    el.feedbackLine.textContent = "";
+    showScreen("task");
+    addTimer(runTrial, 800);   // brief pause so the first trial isn't abrupt
+  }
+
+  function endBlock() {
+    state.trial = null;
+    state.phase = "idle";
+
+    if (state.stage === "practice") {
+      showBreak(
+        "Practice complete",
+        "<p>The main task works the same way, but you won’t see feedback after each trial. " +
+        "Remember to respond as quickly as you can and not to wait for STOP.</p>",
+        "Start the main task",
+        startMain
+      );
+      return;
+    }
+
+    if (state.blockIndex < CONFIG.mainBlocks - 1) {
+      const nextBlock = state.blockIndex + 1;
+      showBreak(
+        `Break: block ${state.blockIndex + 1} of ${CONFIG.mainBlocks} done`,
+        blockFeedbackHtml(state.blockIndex),
+        "Continue",
+        () => startBlock(nextBlock)
+      );
+      return;
+    }
+
+    finishSession();
+  }
+
+  function showBreak(title, bodyHtml, buttonText, onContinue) {
+    el.breakTitle.textContent = title;
+    el.breakBody.innerHTML = bodyHtml;
+    el.breakBtn.textContent = buttonText;
+    state.onBreakContinue = onContinue;
+    showScreen("break");
+    el.breakBtn.focus();
+  }
+
+  // Block-level feedback is recommended by the consensus guidelines to
+  // discourage participants from slowing down to wait for the stop signal.
+  function blockFeedbackHtml(blockIndex) {
+    const rows = state.data.filter((r) => r.stage === "main" && r.block === blockIndex + 1);
+    const go = rows.filter((r) => r.family === "go");
+    const goCorrect = go.filter((r) => r.correct === true);
+    const stop = rows.filter((r) => r.family === "stop");
+    const stopped = stop.filter((r) => r.response_type === "successful_stop");
+
+    const goRt = mean(goCorrect.map((r) => r.rt));
+    const goAcc = go.length ? (goCorrect.length / go.length) * 100 : NaN;
+    const stopPct = stop.length ? (stopped.length / stop.length) * 100 : NaN;
+
+    return (
+      '<table class="stat-table">' +
+      `<tr><td>Average response time</td><td>${fmt(goRt, 0)} ms</td></tr>` +
+      `<tr><td>Correct responses</td><td>${fmt(goAcc, 0)}%</td></tr>` +
+      `<tr><td>Successful stops</td><td>${fmt(stopPct, 0)}%</td></tr>` +
+      "</table>" +
+      "<p>Keep responding as quickly and accurately as you can, and don’t wait for STOP. " +
+      "Stopping about half the time is what the task is designed for.</p>" +
+      "<p>Rest as long as you like, then continue when you’re ready.</p>"
+    );
+  }
+
+  // ===================================================================
+  // 8. RUNNING ONE TRIAL
+  // fixation + foreperiod  ->  dot drawn  ->  dot onset recorded
+  //   ->  each frame: maybe draw STOP, check the response window
+  //   ->  trial ends on a keypress or when the window runs out
+  // ===================================================================
+  function runTrial() {
+    const block = state.blocks[state.blockIndex];
+    if (state.trialIndex >= block.length) {
+      endBlock();
+      return;
+    }
+
+    const spec = block[state.trialIndex];
+    state.token++;
+    const token = state.token;
+
+    state.trial = {
+      ...spec,
+      block: state.blockIndex + 1,
+      trialInBlock: state.trialIndex + 1,
+      ssdIntended: spec.family === "stop" ? state.staircases[spec.rule] : null,
+      targetOnset: null,
+      stopDrawnAt: null,
+      stopOnset: null,
+      earlyPresses: 0,
+      tabHidden: document.hidden
+    };
+
+    hideStimuli();
+    showCue(state.trial);
+    const total = block.length;
+    el.statusLine.textContent = state.stage === "practice"
+      ? `Practice trial ${state.trialIndex + 1} of ${total}`
+      : `Block ${state.blockIndex + 1} of ${CONFIG.mainBlocks}, trial ${state.trialIndex + 1} of ${total}`;
+
+    state.phase = "fixation";
+
+    // setTimeout is fine for the fixation and foreperiod, because a few
+    // milliseconds of jitter here doesn't affect any measurement. Once it
+    // fires, the dot is drawn on the next display frame.
+    addTimer(() => {
+      requestAnimationFrame(() => drawTarget(token));
+    }, CONFIG.timing.fixationMs + spec.foreperiod);
+  }
+
+  function showCue(trial) {
+    if (trial.family === "free") {
+      el.cueLabel.textContent = "FREE VETO";
+      el.cueDetail.textContent = "Press toward the dot, or choose not to press";
+    } else if (trial.rule === "pro") {
+      el.cueLabel.textContent = "PRO";
+      el.cueDetail.textContent = "Press toward the dot";
+    } else {
+      el.cueLabel.textContent = "ANTI";
+      el.cueDetail.textContent = "Press opposite the dot";
+    }
+  }
+
+  function drawTarget(token) {
+    if (token !== state.token) return;
+    const target = state.trial.side === "left" ? el.leftTarget : el.rightTarget;
+    target.classList.add("visible");
+    state.phase = "drawing";
+    // The change made in this frame is painted at the next refresh, which
+    // is when the next rAF callback runs, so that callback's timestamp is
+    // the best available estimate of when the dot actually appeared.
+    requestAnimationFrame((now) => confirmTarget(token, now));
+  }
+
+  function confirmTarget(token, now) {
+    if (token !== state.token) return;
+    state.trial.targetOnset = now;
+    state.phase = "response";
+    requestAnimationFrame((t) => responseFrame(token, t));
+  }
+
+  function responseFrame(token, now) {
+    if (token !== state.token || state.phase !== "response") return;
+    const t = state.trial;
+
+    // If STOP was drawn in the previous frame, this frame is when it appeared.
+    if (t.stopDrawnAt !== null && t.stopOnset === null) {
+      t.stopOnset = now;
+    }
+
+    // Draw STOP in whichever frame will put its onset closest to the
+    // intended SSD. A change made now becomes visible about one frame later.
+    if (t.family === "stop" && t.stopDrawnAt === null) {
+      const predictedOnset = now + state.frameMs - t.targetOnset;
+      if (predictedOnset >= t.ssdIntended - state.frameMs / 2) {
+        el.stopSignal.classList.add("visible");
+        t.stopDrawnAt = now;
+      }
+    }
+
+    if (now - t.targetOnset >= CONFIG.timing.responseWindowMs) {
+      endTrial(null);
+      return;
+    }
+
+    requestAnimationFrame((next) => responseFrame(token, next));
+  }
+
+  // ===================================================================
+  // 9. RESPONSES
+  // ===================================================================
+  document.addEventListener("keydown", (e) => {
+    if (e.repeat) return;   // ignore auto-repeat from a held key
+    const key = e.key.toLowerCase();
+    if (key !== CONFIG.keys.left && key !== CONFIG.keys.right) return;
+
+    const t = state.trial;
+    if (!t) return;
+
+    // Presses before the dot are anticipations. They're counted for data
+    // quality but don't end the trial.
+    if (state.phase === "fixation" || state.phase === "drawing") {
+      t.earlyPresses++;
+      return;
+    }
+    if (state.phase !== "response") return;
+
+    endTrial({ key, time: eventTime(e) });
+  });
+
+  document.addEventListener("visibilitychange", () => {
+    if (document.hidden && state.trial) state.trial.tabHidden = true;
+  });
+
+  // ===================================================================
+  // 10. ENDING A TRIAL: SCORING, STAIRCASE, DATA
+  // response is null when the response window ran out with no key.
+  // ===================================================================
+  function endTrial(response) {
+    const t = state.trial;
+    state.phase = "iti";
+    state.token++;   // any frame callbacks still queued for this trial now quit
+    clearTimers();
+    hideStimuli();
+
+    // If the key came after STOP was drawn but before its onset frame was
+    // recorded, estimate the onset as one frame after drawing.
+    if (t.stopDrawnAt !== null && t.stopOnset === null) {
+      t.stopOnset = t.stopDrawnAt + state.frameMs;
+    }
+
+    const correctKey = correctKeyFor(t);
+    const keyMatches = response ? response.key === correctKey : null;
+    let correct;
+    let responseType;
+    let feedback;
+
+    if (t.family === "go") {
+      if (response) {
+        correct = keyMatches;
+        responseType = "go_response";
+        feedback = correct ? "Correct" : "Wrong key";
+      } else {
+        correct = false;
+        responseType = "go_omission";
+        feedback = "Too slow";
+      }
+    } else if (t.family === "free") {
+      if (response) {
+        correct = keyMatches;
+        responseType = "voluntary_go";
+        feedback = correct ? "Pressed" : "Wrong key";
+      } else {
+        correct = true;
+        responseType = "voluntary_withhold";
+        feedback = "Withheld";
+      }
+    } else {
+      // Stop trial. Any response counts as a failed stop, including one
+      // made before STOP had a chance to appear (consensus scoring). Those
+      // are marked in responded_before_stop so they can be examined.
+      const stopped = !response;
+      correct = stopped;
+      responseType = stopped ? "successful_stop" : "failed_stop";
+      feedback = stopped ? "Stopped" : "Should have stopped";
+      updateStaircase(t.rule, stopped);
+    }
+
+    state.globalTrial++;
+    state.data.push({
+      participant_id: state.participant.id,
+      age: state.participant.age,
+      gender: state.participant.gender,
+      stage: state.stage,
+      block: t.block,
+      trial_in_block: t.trialInBlock,
+      trial: state.globalTrial,
+      family: t.family,
+      rule: t.rule,
+      side: t.side,
+      correct_key: correctKey.toUpperCase(),
+      foreperiod: t.foreperiod,
+      ssd_intended: t.family === "stop" ? t.ssdIntended : "",
+      ssd_actual: t.stopOnset !== null ? round1(t.stopOnset - t.targetOnset) : "",
+      key: response ? response.key.toUpperCase() : "",
+      rt: response ? round1(response.time - t.targetOnset) : "",
+      key_matches_rule: response ? keyMatches : "",
+      correct,
+      response_type: responseType,
+      responded_before_stop: t.family === "stop" && response ? t.stopDrawnAt === null : "",
+      early_presses: t.earlyPresses,
+      tab_hidden: t.tabHidden
+    });
+
+    el.feedbackLine.textContent = state.stage === "practice" ? feedback : "";
+
+    state.trialIndex++;
+    addTimer(runTrial, CONFIG.timing.itiMs);
+  }
+
+  // ===================================================================
+  // 11. ANALYSIS: SSRT AND SUMMARY STATISTICS
+  // ===================================================================
+
+  // Quantile with interpolation, matching R's quantile(type = 6), which is
+  // what the Verbruggen et al. (2019) reference code uses.
+  function quantileType6(sorted, p) {
+    const n = sorted.length;
+    const h = (n + 1) * p;
+    if (h <= 1) return sorted[0];
+    if (h >= n) return sorted[n - 1];
+    const lo = Math.floor(h);
+    return sorted[lo - 1] + (h - lo) * (sorted[lo] - sorted[lo - 1]);
+  }
+
+  // Integration method with replacement of go omissions:
+  //   1. Take all go RTs for this rule, including choice errors.
+  //   2. Replace each go omission with the slowest go RT.
+  //   3. Find the RT at the quantile equal to P(respond | signal).
+  //   4. SSRT = that RT minus the mean SSD.
+  function summarizeRule(rows, rule) {
+    const go = rows.filter((r) => r.family === "go" && r.rule === rule);
+    const stop = rows.filter((r) => r.family === "stop" && r.rule === rule);
+
+    const goResponded = go.filter((r) => r.rt !== "");
+    const goRts = goResponded.map((r) => r.rt);
+    const goCorrectRts = go.filter((r) => r.correct === true).map((r) => r.rt);
+    const omissions = go.length - goResponded.length;
+    const choiceErrors = goResponded.filter((r) => r.correct === false).length;
+
+    const failed = stop.filter((r) => r.response_type === "failed_stop");
+    const pRespond = stop.length ? failed.length / stop.length : NaN;
+    const beforeStop = failed.filter((r) => r.responded_before_stop === true).length;
+
+    // Measured SSD where STOP was shown; intended SSD where a response came first.
+    const ssds = stop.map((r) => (r.ssd_actual !== "" ? r.ssd_actual : r.ssd_intended));
+    const meanSsd = mean(ssds);
+
+    let nthRt = NaN;
+    let ssrt = NaN;
+    if (goRts.length && stop.length && pRespond > 0 && pRespond < 1) {
+      const slowest = Math.max(...goRts);
+      const distribution = goRts.concat(Array(omissions).fill(slowest)).sort((a, b) => a - b);
+      nthRt = quantileType6(distribution, pRespond);
+      ssrt = nthRt - meanSsd;
+    }
+
+    // Race-model check: failed-stop RTs should be faster on average than go RTs.
+    const goMeanAll = mean(goRts);
+    const signalRespondMean = mean(failed.map((r) => r.rt));
+    const raceCheck = Number.isFinite(goMeanAll) && Number.isFinite(signalRespondMean)
+      ? signalRespondMean < goMeanAll
+      : "NA";
+
+    const [lo, hi] = CONFIG.reliablePRespond;
+    const reliable = Number.isFinite(pRespond) ? pRespond >= lo && pRespond <= hi : "NA";
+
+    return [
+      [`${rule}_go_n`, go.length],
+      [`${rule}_go_accuracy_percent`, fmt(go.length ? (goCorrectRts.length / go.length) * 100 : NaN, 2)],
+      [`${rule}_go_mean_rt_correct`, fmt(mean(goCorrectRts), 1)],
+      [`${rule}_go_mean_rt_all_responses`, fmt(goMeanAll, 1)],
+      [`${rule}_go_omission_percent`, fmt(go.length ? (omissions / go.length) * 100 : NaN, 2)],
+      [`${rule}_go_choice_error_percent`, fmt(go.length ? (choiceErrors / go.length) * 100 : NaN, 2)],
+      [`${rule}_stop_n`, stop.length],
+      [`${rule}_p_respond_given_signal`, fmt(pRespond, 3)],
+      [`${rule}_failed_stops_before_signal`, beforeStop],
+      [`${rule}_mean_ssd`, fmt(meanSsd, 1)],
+      [`${rule}_signal_respond_mean_rt`, fmt(signalRespondMean, 1)],
+      [`${rule}_race_check_passed`, raceCheck],
+      [`${rule}_nth_rt`, fmt(nthRt, 1)],
+      [`${rule}_ssrt_integration`, fmt(ssrt, 1)],
+      [`${rule}_ssrt_reliable`, reliable]
+    ];
+  }
+
+  function buildSummary() {
+    const main = state.data.filter((r) => r.stage === "main");
+    const free = main.filter((r) => r.family === "free");
+    const freeWithheld = free.filter((r) => r.response_type === "voluntary_withhold");
+    const freeGo = free.filter((r) => r.response_type === "voluntary_go");
+
+    return [
+      ["instrument_version", VERSION],
+      ["participant_id", state.participant.id],
+      ["age", state.participant.age],
+      ["gender", state.participant.gender],
+      ["session_start", state.sessionStart],
+      ["refresh_hz", fmt(1000 / state.frameMs, 1)],
+      ["frame_ms", fmt(state.frameMs, 2)],
+      ["window_size", `${window.innerWidth}x${window.innerHeight}`],
+      ["user_agent", navigator.userAgent],
+      ["main_trials", main.length],
+      ...summarizeRule(main, "pro"),
+      ...summarizeRule(main, "anti"),
+      ["free_veto_n", free.length],
+      ["free_veto_withhold_percent", fmt(free.length ? (freeWithheld.length / free.length) * 100 : NaN, 2)],
+      ["free_veto_go_mean_rt", fmt(mean(freeGo.map((r) => r.rt)), 1)],
+      ["free_veto_go_accuracy_percent",
+        fmt(freeGo.length ? (freeGo.filter((r) => r.correct === true).length / freeGo.length) * 100 : NaN, 2)],
+      ["early_presses_total", main.reduce((sum, r) => sum + r.early_presses, 0)],
+      ["trials_with_tab_hidden", main.filter((r) => r.tab_hidden).length],
+      ["config_json", JSON.stringify(CONFIG)]
+    ];
+  }
+
+  // ===================================================================
+  // 12. FINISHING AND SAVING
+  // Downloads start from button clicks, because browsers often block
+  // downloads that a page starts on its own.
+  // ===================================================================
+  const TRIAL_COLUMNS = [
+    "participant_id", "age", "gender", "stage", "block", "trial_in_block", "trial",
+    "family", "rule", "side", "correct_key", "foreperiod", "ssd_intended", "ssd_actual",
+    "key", "rt", "key_matches_rule", "correct", "response_type", "responded_before_stop",
+    "early_presses", "tab_hidden"
+  ];
+
+  function csvCell(value) {
+    const s = value === null || value === undefined ? "" : String(value);
+    return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+  }
+
+  function trialsCsv() {
+    const lines = [TRIAL_COLUMNS.join(",")];
+    state.data.forEach((row) => lines.push(TRIAL_COLUMNS.map((c) => csvCell(row[c])).join(",")));
+    return lines.join("\n") + "\n";
+  }
+
+  function summaryCsv() {
+    const lines = ["metric,value"];
+    buildSummary().forEach(([k, v]) => lines.push(`${csvCell(k)},${csvCell(v)}`));
+    return lines.join("\n") + "\n";
+  }
+
+  function download(filename, text) {
+    const blob = new Blob([text], { type: "text/csv" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
+
+  function safeId() {
+    return state.participant.id.replace(/[^A-Za-z0-9_-]/g, "_");
+  }
+
+  function updateDownloadStatus() {
+    const { trials, summary } = state.downloaded;
+    el.downloadStatus.textContent = trials && summary
+      ? "Both files downloaded."
+      : `Downloaded: ${[trials && "trial data", summary && "summary"].filter(Boolean).join(", ") || "nothing yet"}.`;
+  }
+
+  function finishSession() {
+    clearTimers();
+    hideStimuli();
+    state.trial = null;
+    state.phase = "idle";
+    showScreen("end");
+    updateDownloadStatus();
+  }
+
+  // Warn before leaving if a finished session hasn't been fully downloaded.
+  window.addEventListener("beforeunload", (e) => {
+    const finished = !screens.end.hidden;
+    if (finished && !(state.downloaded.trials && state.downloaded.summary)) {
+      e.preventDefault();
+      e.returnValue = "";
+    }
+  });
+
+  // ===================================================================
+  // 13. BUTTONS
+  // ===================================================================
+  $("continueBtn").addEventListener("click", () => {
+    const participant = {
+      id: el.pid.value.trim(),
+      age: el.age.value.trim(),
+      gender: el.gender.value
+    };
+    if (!participant.id || !participant.age || !participant.gender) {
+      el.formError.textContent = "Fill in participant ID, age, and gender to continue.";
+      return;
+    }
+    el.formError.textContent = "";
+    state.participant = participant;
+    state.sessionStart = new Date().toISOString();
+    showScreen("instructions");
+  });
+
+  $("practiceBtn").addEventListener("click", startPractice);
+
+  el.breakBtn.addEventListener("click", () => {
+    const next = state.onBreakContinue;
+    state.onBreakContinue = null;
+    if (next) next();
+  });
+
+  $("downloadTrialsBtn").addEventListener("click", () => {
+    download(`${safeId()}_trial_data.csv`, trialsCsv());
+    state.downloaded.trials = true;
+    updateDownloadStatus();
+  });
+
+  $("downloadSummaryBtn").addEventListener("click", () => {
+    download(`${safeId()}_summary_stats.csv`, summaryCsv());
+    state.downloaded.summary = true;
+    updateDownloadStatus();
+  });
+
+  $("nextParticipantBtn").addEventListener("click", () => location.reload());
+})();
+</script>
+</body>
+</html>

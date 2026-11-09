@@ -1,0 +1,17 @@
+# Participant data: never commit this to a public repository
+*.csv
+data/
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+
+# Node
+node_modules/
+
+# OS and editor files
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
